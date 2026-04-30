@@ -508,7 +508,7 @@
 .search-footnote {
   display: grid;
   gap: 0.35rem;
-  color: rgba(247, 240, 231, 0.84);
+  color: var(--text);
 }
 
 .search-property {
