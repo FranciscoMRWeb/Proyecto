@@ -110,6 +110,49 @@ function crearBorradorPerfil(user) {
         fumador: typeof datosRol.fumador === 'boolean' ? datosRol.fumador : false,
     };
 }
+    function fusionarPerfilGuardado(user, borrador) {
+      if (!user || !user.perfil) {
+        return user;
+      }
+      const datosRol = user.perfil.datosRol ?? {};
+      const perfilBase = {
+        ...user.perfil,
+        nombre: borrador.nombre,
+        apellidos: borrador.apellidos,
+        telefono: borrador.telefono || user.perfil.telefono || user.telefono || '',
+        ciudad: borrador.ciudad || user.perfil.ciudad || user.ciudad || '',
+        descripcion: borrador.descripcion,
+        fotoPerfil: borrador.fotoPerfil,
+        emailPublico: borrador.emailPublico,
+        telefonoPublico: borrador.telefonoPublico,
+        perfilPublico: borrador.perfilPublico,
+        datosRol: user.rol === 'arrendador'
+          ? {
+            ...datosRol,
+            nombreComercial: borrador.nombreComercial,
+            descripcionEmpresa: borrador.descripcionEmpresa,
+            web: borrador.web,
+          }
+          : {
+            ...datosRol,
+            ultimoPisoAlquilado: borrador.ultimoPisoAlquilado,
+            avalistas: borrador.avalistas,
+            rangoPrecioMin: borrador.rangoPrecioMin,
+            rangoPrecioMax: borrador.rangoPrecioMax,
+            ubicacionDeseada: borrador.ubicacionDeseada,
+            curriculum: borrador.curriculum,
+            mascotas: borrador.mascotas,
+            fumador: borrador.fumador,
+          },
+      };
+
+      return {
+        ...user,
+        telefono: borrador.telefono || user.telefono || '',
+        ciudad: borrador.ciudad || user.ciudad || '',
+        perfil: perfilBase,
+      };
+    }
 function crearBorradorPropiedad(property) {
     if (!property) {
         return borradorPropiedadInicial;
@@ -586,19 +629,9 @@ function App() {
                     fumador: borradorPerfil.fumador,
                 }),
             });
-                console.log('Client: PUT /api/me finished, server response keys:', Object.keys(response || {}))
-                if (typeof borradorPerfil.fotoPerfil === 'string') {
-                  console.log('Client: fotoPerfil length being sent:', borradorPerfil.fotoPerfil.length)
-                }
-                const perfilActualizado = await solicitudApi('/api/me', {
-                  headers: {
-                    Authorization: `Bearer ${token}`,
-                  },
-                });
-                console.log('Client: GET /api/me response keys:', Object.keys(perfilActualizado || {}))
-                console.log('Client: perfilActualizado.user.perfil.nombre:', perfilActualizado.user?.perfil?.nombre)
-                setUsuarioSesion(perfilActualizado.user);
-                setBorradorPerfil(crearBorradorPerfil(perfilActualizado.user));
+            const perfilActualizado = fusionarPerfilGuardado(response.user ?? usuarioSesion, borradorPerfil);
+            setUsuarioSesion(perfilActualizado);
+            setBorradorPerfil(crearBorradorPerfil(perfilActualizado));
             setStatusMessage({ kind: 'success', text: 'Perfil actualizado correctamente.' });
         }
         catch (error) {
