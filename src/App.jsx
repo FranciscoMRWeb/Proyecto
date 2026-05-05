@@ -66,11 +66,11 @@ const borradorPropiedadInicial = {
 };
 async function solicitudApi(path, options = {}) {
     const response = await fetch(construirUrlApi(path), {
+    ...options,
         headers: {
             'Content-Type': 'application/json',
             ...(options.headers ?? {}),
         },
-        ...options,
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -231,6 +231,11 @@ function App() {
       ciudad: '',
       precioMax: '',
     });
+    const filtrosBusquedaInicial = {
+      rol: 'todos',
+      ciudad: '',
+      precioMax: '',
+    };
     const [coincidencias, setCoincidencias] = useState([]);
     const [cargandoCoincidencias, setCargandoCoincidencias] = useState(false);
     const [mensajeCoincidencias, setMensajeCoincidencias] = useState(null);
@@ -319,6 +324,48 @@ function App() {
             setCargandoCoincidencias(false);
         });
     }, [usuarioSesion]);
+    useEffect(() => {
+        if (candidatosBusqueda.length === 0) {
+            return;
+        }
+        const candidatosFiltrados = candidatosBusqueda.filter((candidate) => {
+            if (filtrosBusqueda.rol !== 'todos' && candidate.profile.rol !== filtrosBusqueda.rol) {
+                return false;
+            }
+            const ciudadFiltro = filtrosBusqueda.ciudad.trim().toLowerCase();
+            if (ciudadFiltro) {
+                const ciudadCandidate = (candidate.profile.ciudad || '').toLowerCase();
+                if (!ciudadCandidate.includes(ciudadFiltro)) {
+                    return false;
+                }
+            }
+            if (filtrosBusqueda.precioMax) {
+                const maximo = Number(filtrosBusqueda.precioMax);
+                const precioArrendador = typeof candidate.property?.precio === 'number'
+                    ? candidate.property.precio
+                    : Number(candidate.property?.precio);
+                const precioArrendatario = typeof candidate.profile.datosRol?.rangoPrecioMax === 'number'
+                    ? candidate.profile.datosRol.rangoPrecioMax
+                    : Number(candidate.profile.datosRol?.rangoPrecioMax);
+                const precioReferencia = Number.isFinite(precioArrendador) ? precioArrendador : precioArrendatario;
+                if (!Number.isFinite(precioReferencia) || precioReferencia > maximo) {
+                    return false;
+                }
+            }
+            return true;
+        });
+        if (candidatosFiltrados.length === 0) {
+            setMensajeBusqueda({
+                kind: 'error',
+                text: 'No hay candidatos disponibles para esos parámetros.',
+            });
+        } else {
+            setMensajeBusqueda({
+                kind: 'success',
+                text: `Se han encontrado ${candidatosFiltrados.length} candidatos compatibles.`,
+            });
+        }
+    }, [candidatosBusqueda, filtrosBusqueda]);
     useEffect(() => {
         if (usuarioSesion?.rol !== 'arrendador') {
             setListaPropiedades([]);
@@ -602,11 +649,11 @@ function App() {
         try {
             const token = window.localStorage.getItem('tokenAutenticacion');
             const response = await solicitudApi('/api/me', {
-                method: 'PUT',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
+              method: 'PUT',
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
                     nombre: borradorPerfil.nombre,
                     apellidos: borradorPerfil.apellidos,
                     telefono: borradorPerfil.telefono || null,
@@ -761,6 +808,12 @@ function App() {
         finally {
             setCargandoBusqueda(false);
         }
+    }
+    function limpiarFiltros() {
+        setFiltrosBusqueda(filtrosBusquedaInicial);
+    }
+    function limpiarMensajeBusqueda() {
+        setMensajeBusqueda(null);
     }
     async function manejarVoto(candidateProfileId, vote) {
         if (!usuarioSesion) {
@@ -1119,20 +1172,27 @@ function App() {
             }}>
                   <select value={filtrosBusqueda.rol} onChange={(event) => setFiltrosBusqueda((current) => ({ ...current, rol: event.target.value }))}>
                     <option value="todos">Todos los roles</option>
-                    <option value="arrendador">Arrendadores</option>
-                    <option value="arrendatario">Arrendatarios</option>
+                    {usuarioSesion.rol === 'arrendatario' ? (
+                      <option value="arrendador">Arrendadores</option>
+                    ) : (
+                      <option value="arrendatario">Arrendatarios</option>
+                    )}
                   </select>
                   <input type="text" placeholder="Filtrar por ciudad" value={filtrosBusqueda.ciudad} onChange={(event) => setFiltrosBusqueda((current) => ({ ...current, ciudad: event.target.value }))}/>
                   <input type="number" min="0" step="1" placeholder="Precio max" value={filtrosBusqueda.precioMax} onChange={(event) => setFiltrosBusqueda((current) => ({ ...current, precioMax: event.target.value }))}/>
                   <button className="button" type="submit" disabled={cargandoBusqueda}>
                     {cargandoBusqueda ? 'Buscando...' : 'Encontrar'}
                   </button>
+                  <button className="button button-secondary" type="button" onClick={limpiarFiltros} disabled={cargandoBusqueda}>
+                    Limpiar
+                  </button>
                 </form>
               </div>
 
-              {mensajeBusqueda ? (<p className={mensajeBusqueda.kind === 'error' ? 'status status-error' : 'status status-success'}>
-                  {mensajeBusqueda.text}
-                </p>) : null}
+              {mensajeBusqueda ? (<div className={mensajeBusqueda.kind === 'error' ? 'status status-error' : 'status status-success'}>
+                  <p>{mensajeBusqueda.text}</p>
+                  <button className="status-close" type="button" onClick={limpiarMensajeBusqueda} aria-label="Cerrar mensaje">✕</button>
+                </div>) : null}
 
               {cargandoBusqueda ? (<div className="house-loader" role="status" aria-live="polite">
                   <span className="house-loader-icon" aria-hidden="true">🏠</span>
