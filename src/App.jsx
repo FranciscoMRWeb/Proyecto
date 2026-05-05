@@ -1164,10 +1164,10 @@ function App() {
 
                         <div className="search-actions">
                           <button className="button button-secondary" type="button" onClick={() => manejarVoto(candidate.profile.profileId, 'down')} disabled={candidate.match?.estado === 'match' || cargandoBusqueda}>
-                            Pulgar abajo
+                            Dedito abajo
                           </button>
                           <button className="button" type="button" onClick={() => manejarVoto(candidate.profile.profileId, 'up')} disabled={candidate.match?.estado === 'match' || cargandoBusqueda}>
-                            Pulgar arriba
+                            Dedito arriba
                           </button>
                         </div>
 

@@ -5,6 +5,8 @@
     await modProps.default()
     const modSearch = await import('./test_search.js')
     await modSearch.default()
+    const modMatches = await import('./test_matches.js')
+    await modMatches.default()
     console.log('\nALL TESTS OK')
     process.exit(0)
   }catch(err){

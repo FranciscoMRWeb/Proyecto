@@ -33,7 +33,7 @@ function corsOriginChecker(origin, callback) {
   try {
     const url = new URL(origin)
     if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return callback(null, true)
-  } catch (e) {
+  } catch {
     // ignore parse errors
   }
 
@@ -209,63 +209,6 @@ function construirResumenCoincidencia(row) {
 // --- Validation helpers ---
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.trim() !== ''
-}
-
-function validarPropiedadPayload(body) {
-  const errors = []
-  const { titulo, ciudad, precio, tipoAlquiler, habitaciones, banos, metrosCuadrados, fotos } = body ?? {}
-
-  if (!isNonEmptyString(titulo)) errors.push('titulo es obligatorio')
-  if (!isNonEmptyString(ciudad)) errors.push('ciudad es obligatoria')
-
-  if (precio === undefined || precio === null || Number.isNaN(Number(precio))) {
-    errors.push('precio invalido')
-  } else if (Number(precio) < 0) {
-    errors.push('precio debe ser mayor o igual a 0')
-  }
-
-  if (!isNonEmptyString(tipoAlquiler)) errors.push('tipoAlquiler es obligatorio')
-
-  if (habitaciones !== undefined && habitaciones !== null && String(habitaciones) !== '') {
-    const h = Number(habitaciones)
-    if (!Number.isInteger(h) || h < 0) errors.push('habitaciones invalido')
-  }
-
-  if (banos !== undefined && banos !== null && String(banos) !== '') {
-    const b = Number(banos)
-    if (!Number.isInteger(b) || b < 0) errors.push('banos invalido')
-  }
-
-  if (metrosCuadrados !== undefined && metrosCuadrados !== null && String(metrosCuadrados) !== '') {
-    const m = Number(metrosCuadrados)
-    if (Number.isNaN(m) || m < 0) errors.push('metrosCuadrados invalido')
-  }
-
-  if (fotos !== undefined && fotos !== null) {
-    if (!Array.isArray(fotos)) {
-      errors.push('fotos debe ser un array de URLs')
-    } else {
-      for (const url of fotos) {
-        if (typeof url !== 'string') {
-          errors.push('cada foto debe ser una URL (string)')
-          break
-        }
-      }
-    }
-  }
-
-  return errors
-}
-
-function validarRegistroPayload(body) {
-  const errors = []
-  const { email, password, rol, nombre, apellidos } = body ?? {}
-  if (!isNonEmptyString(email) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email))) errors.push('email invalido')
-  if (!isNonEmptyString(password) || String(password).length < 8) errors.push('password demasiado corta (min 8)')
-  if (!['arrendador', 'arrendatario'].includes(rol)) errors.push('rol invalido')
-  if (!isNonEmptyString(nombre)) errors.push('nombre es obligatorio')
-  if (!isNonEmptyString(apellidos)) errors.push('apellidos es obligatorio')
-  return errors
 }
 
 function validarMePayload(body) {
@@ -1212,6 +1155,13 @@ app.post('/api/matches/:profileId/vote', requiereAutenticacion, async (req, res)
       }
 
       const me = current.rows[0]
+
+      if (targetProfileId === me.profile_id) {
+        const error = new Error('No puedes votarte a ti mismo')
+        error.statusCode = 400
+        throw error
+      }
+
       const isArrendador = me.rol === 'arrendador'
       const arrendadorProfileId = isArrendador ? me.profile_id : targetProfileId
       const arrendatarioProfileId = isArrendador ? targetProfileId : me.profile_id
@@ -1252,22 +1202,50 @@ app.post('/api/matches/:profileId/vote', requiereAutenticacion, async (req, res)
 
       const timestampColumn = isArrendador ? 'arrendador_voto_at' : 'arrendatario_voto_at'
       const voteColumn = isArrendador ? 'arrendador_voto' : 'arrendatario_voto'
-      const otherVoteColumn = isArrendador ? 'arrendatario_voto' : 'arrendador_voto'
+
+      function calcularEstadoMatch(arrendadorVoto, arrendatarioVoto) {
+        if (arrendadorVoto === 'down' || arrendatarioVoto === 'down') {
+          return {
+            estado: 'rechazado',
+            contactoVisible: false,
+          }
+        }
+
+        if (arrendadorVoto === 'up' && arrendatarioVoto === 'up') {
+          return {
+            estado: 'match',
+            contactoVisible: true,
+          }
+        }
+
+        return {
+          estado: 'pendiente',
+          contactoVisible: false,
+        }
+      }
 
       let matchRow
       if (existing.rowCount === 0) {
+        const votosIniciales = {
+          arrendadorVoto: isArrendador ? vote : null,
+          arrendatarioVoto: isArrendador ? null : vote,
+        }
+        const estadoInicial = calcularEstadoMatch(votosIniciales.arrendadorVoto, votosIniciales.arrendatarioVoto)
+
         const inserted = await client.query(
           `
             INSERT INTO matches (
               arrendador_perfil_id,
               arrendatario_perfil_id,
               ${voteColumn},
-              ${timestampColumn}
+              ${timestampColumn},
+              estado,
+              contacto_visible
             )
-            VALUES ($1, $2, $3, NOW())
+            VALUES ($1, $2, $3, NOW(), $4, $5)
             RETURNING *
           `,
-          [arrendadorProfileId, arrendatarioProfileId, vote],
+          [arrendadorProfileId, arrendatarioProfileId, vote, estadoInicial.estado, estadoInicial.contactoVisible],
         )
         matchRow = inserted.rows[0]
       } else {
@@ -1275,49 +1253,43 @@ app.post('/api/matches/:profileId/vote', requiereAutenticacion, async (req, res)
           `
             UPDATE matches
             SET
-              ${voteColumn} = $3,
+              ${voteColumn} = $2,
               ${timestampColumn} = NOW(),
-              estado = CASE
-                WHEN ${voteColumn} = 'down' OR $3 = 'down' THEN 'rechazado'
-                WHEN ${otherVoteColumn} = 'up' AND $3 = 'up' THEN 'match'
-                ELSE 'pendiente'
-              END,
-              contacto_visible = CASE
-                WHEN ${otherVoteColumn} = 'up' AND $3 = 'up' THEN TRUE
-                ELSE contacto_visible AND ${otherVoteColumn} = 'up' AND $3 = 'up'
-              END,
               fecha_actualizacion = NOW()
             WHERE id = $1
             RETURNING *
           `,
-          [existing.rows[0].id, vote, vote],
+          [existing.rows[0].id, vote],
         )
-        matchRow = updated.rows[0]
-      }
+        const filaActualizada = updated.rows[0]
+        const estadoCalculado = calcularEstadoMatch(filaActualizada.arrendador_voto, filaActualizada.arrendatario_voto)
 
-      if (matchRow.arrendador_voto === 'up' && matchRow.arrendatario_voto === 'up') {
-        await client.query(
+        const finalState = await client.query(
           `
             UPDATE matches
-            SET estado = 'match', contacto_visible = TRUE, fecha_actualizacion = NOW()
+            SET
+              estado = $2,
+              contacto_visible = $3,
+              fecha_actualizacion = NOW()
             WHERE id = $1
+            RETURNING *
           `,
-          [matchRow.id],
+          [filaActualizada.id, estadoCalculado.estado, estadoCalculado.contactoVisible],
         )
-        matchRow.estado = 'match'
-        matchRow.contacto_visible = true
+        matchRow = finalState.rows[0]
       }
 
       if (matchRow.arrendador_voto === 'down' || matchRow.arrendatario_voto === 'down') {
         await client.query(
           `
             UPDATE matches
-            SET estado = 'rechazado', fecha_actualizacion = NOW()
+            SET estado = 'rechazado', contacto_visible = FALSE, fecha_actualizacion = NOW()
             WHERE id = $1
           `,
           [matchRow.id],
         )
         matchRow.estado = 'rechazado'
+        matchRow.contacto_visible = false
       }
 
       return matchRow
@@ -1410,6 +1382,8 @@ app.get('/api/matches/mine', requiereAutenticacion, async (req, res) => {
         id: row.id,
         estado: row.estado,
         contactoVisible: row.contacto_visible,
+        miVoto: me.rol === 'arrendador' ? row.my_arrendador_voto : row.my_arrendatario_voto,
+        suVoto: me.rol === 'arrendador' ? row.my_arrendatario_voto : row.my_arrendador_voto,
         usuarioCoincidencia:
           me.rol === 'arrendador'
             ? {
