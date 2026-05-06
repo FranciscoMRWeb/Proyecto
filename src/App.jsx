@@ -1316,6 +1316,44 @@ function App() {
                           <strong>Contacto habilitado</strong>
                           <span>Email: {match.usuarioCoincidencia.email || 'No publicado'}</span>
                           <span>Telefono: {match.usuarioCoincidencia.telefono || 'No publicado'}</span>
+                          {match.usuarioCoincidencia.datosRol?.nombreComercial ? (<span>Empresa: {match.usuarioCoincidencia.datosRol.nombreComercial}</span>) : null}
+                          {match.usuarioCoincidencia.datosRol?.descripcionEmpresa ? (<span>Descripcion empresa: {match.usuarioCoincidencia.datosRol.descripcionEmpresa}</span>) : null}
+                          {match.usuarioCoincidencia.datosRol?.web ? (<span>Web: {match.usuarioCoincidencia.datosRol.web}</span>) : null}
+                          {(typeof match.usuarioCoincidencia.datosRol?.rangoPrecioMin === 'number' || typeof match.usuarioCoincidencia.datosRol?.rangoPrecioMin === 'string' || typeof match.usuarioCoincidencia.datosRol?.rangoPrecioMax === 'number' || typeof match.usuarioCoincidencia.datosRol?.rangoPrecioMax === 'string') ? (<span>
+                              Rango buscado: {typeof match.usuarioCoincidencia.datosRol?.rangoPrecioMin === 'number' || typeof match.usuarioCoincidencia.datosRol?.rangoPrecioMin === 'string'
+                                ? String(match.usuarioCoincidencia.datosRol.rangoPrecioMin)
+                                : 'Sin minimo'}{' '}
+                              -{' '}
+                              {typeof match.usuarioCoincidencia.datosRol?.rangoPrecioMax === 'number' || typeof match.usuarioCoincidencia.datosRol?.rangoPrecioMax === 'string'
+                                ? String(match.usuarioCoincidencia.datosRol.rangoPrecioMax)
+                                : 'Sin maximo'} EUR
+                            </span>) : null}
+                          {match.usuarioCoincidencia.datosRol?.ubicacionDeseada ? (<span>Ubicacion deseada: {match.usuarioCoincidencia.datosRol.ubicacionDeseada}</span>) : null}
+                          {match.usuarioCoincidencia.datosRol?.ultimoPisoAlquilado ? (<span>Ultimo piso alquilado: {match.usuarioCoincidencia.datosRol.ultimoPisoAlquilado}</span>) : null}
+                          {match.usuarioCoincidencia.datosRol?.avalistas ? (<span>Avalistas: {match.usuarioCoincidencia.datosRol.avalistas}</span>) : null}
+                          {match.usuarioCoincidencia.datosRol?.curriculum ? (<span>Curriculum: {match.usuarioCoincidencia.datosRol.curriculum}</span>) : null}
+                          {typeof match.usuarioCoincidencia.datosRol?.mascotas === 'boolean' ? (<span>Mascotas: {match.usuarioCoincidencia.datosRol.mascotas ? 'Si' : 'No'}</span>) : null}
+                          {typeof match.usuarioCoincidencia.datosRol?.fumador === 'boolean' ? (<span>Fumador: {match.usuarioCoincidencia.datosRol.fumador ? 'Si' : 'No'}</span>) : null}
+                          {match.property ? (<>
+                              <strong>Propiedad publicada</strong>
+                              <span>Titulo: {match.property.titulo}</span>
+                              {match.property.descripcion ? (<span>Descripcion: {match.property.descripcion}</span>) : null}
+                              <span>
+                                Ubicacion: {match.property.ciudad}
+                                {match.property.zona ? ` · ${match.property.zona}` : ''}
+                                {match.property.direccion ? ` · ${match.property.direccion}` : ''}
+                              </span>
+                              <span>Precio: {match.property.precio} EUR · Tipo: {match.property.tipoAlquiler}</span>
+                              <span>
+                                Habitaciones: {typeof match.property.habitaciones === 'number' ? match.property.habitaciones : 'No indicado'} ·
+                                Banos: {typeof match.property.banos === 'number' ? match.property.banos : 'No indicado'} ·
+                                Metros: {typeof match.property.metrosCuadrados === 'number' ? match.property.metrosCuadrados : 'No indicado'}
+                              </span>
+                              <span>
+                                Amueblado: {typeof match.property.amueblado === 'boolean' ? (match.property.amueblado ? 'Si' : 'No') : 'No indicado'} ·
+                                Disponible: {typeof match.property.disponible === 'boolean' ? (match.property.disponible ? 'Si' : 'No') : 'No indicado'}
+                              </span>
+                            </>) : null}
                         </div>) : (<p className="search-footnote">El contacto se mantendra oculto hasta el match mutuo.</p>)}
                     </article>))}
                 </div>)}
