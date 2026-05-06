@@ -206,6 +206,131 @@ function construirResumenCoincidencia(row) {
   }
 }
 
+const arrendadoresDemoDeviber = [
+  {
+    email: 'arrendador.demo1@deviber.local',
+    nombre: 'Lucia',
+    apellidos: 'Serrano',
+    ciudad: 'Madrid',
+    telefono: '600100101',
+    nombreComercial: 'Deviber Homes Centro',
+    descripcionEmpresa: 'Gestion integral de alquiler en zona centro.',
+    web: 'https://deviber.local/homes-centro',
+  },
+  {
+    email: 'arrendador.demo2@deviber.local',
+    nombre: 'Carlos',
+    apellidos: 'Molina',
+    ciudad: 'Valencia',
+    telefono: '600100102',
+    nombreComercial: 'Deviber Costa Living',
+    descripcionEmpresa: 'Pisos para larga estancia en barrios residenciales.',
+    web: 'https://deviber.local/costa-living',
+  },
+  {
+    email: 'arrendador.demo3@deviber.local',
+    nombre: 'Marta',
+    apellidos: 'Rios',
+    ciudad: 'Sevilla',
+    telefono: '600100103',
+    nombreComercial: 'Deviber Sur Alquileres',
+    descripcionEmpresa: 'Alquiler seguro para estudiantes y profesionales.',
+    web: 'https://deviber.local/sur-alquileres',
+  },
+]
+
+async function asegurarArrendadoresDeviber(client) {
+  const totalArrendadoresVisibles = await client.query(
+    `
+      SELECT COUNT(*)::int AS total
+      FROM usuarios u
+      JOIN perfiles p ON p.usuario_id = u.id
+      JOIN perfiles_arrendador pa ON pa.perfil_id = p.id
+      WHERE u.rol = 'arrendador'
+    `,
+  )
+
+  if ((totalArrendadoresVisibles.rows[0]?.total ?? 0) > 0) {
+    return
+  }
+
+  for (const demo of arrendadoresDemoDeviber) {
+    const hash = await bcrypt.hash('Deviber123!', 10)
+
+    const userResult = await client.query(
+      `
+        INSERT INTO usuarios (email, contrasena_hash, rol, telefono, ciudad, activo, ultima_conexion)
+        VALUES ($1, $2, 'arrendador', $3, $4, TRUE, NOW())
+        ON CONFLICT (email) DO UPDATE
+          SET rol = 'arrendador',
+              telefono = COALESCE(usuarios.telefono, EXCLUDED.telefono),
+              ciudad = COALESCE(usuarios.ciudad, EXCLUDED.ciudad)
+        RETURNING id
+      `,
+      [demo.email, hash, demo.telefono, demo.ciudad],
+    )
+
+    const userId = userResult.rows[0].id
+
+    const profileResult = await client.query(
+      `
+        INSERT INTO perfiles (
+          usuario_id,
+          nombre,
+          apellidos,
+          descripcion,
+          telefono,
+          ciudad,
+          email_publico,
+          telefono_publico,
+          perfil_publico,
+          fecha_actualizacion
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, TRUE, TRUE, TRUE, NOW())
+        ON CONFLICT (usuario_id) DO UPDATE
+          SET nombre = COALESCE(perfiles.nombre, EXCLUDED.nombre),
+              apellidos = COALESCE(perfiles.apellidos, EXCLUDED.apellidos),
+              descripcion = COALESCE(perfiles.descripcion, EXCLUDED.descripcion),
+              telefono = COALESCE(perfiles.telefono, EXCLUDED.telefono),
+              ciudad = COALESCE(perfiles.ciudad, EXCLUDED.ciudad),
+              fecha_actualizacion = NOW()
+        RETURNING id
+      `,
+      [
+        userId,
+        demo.nombre,
+        demo.apellidos,
+        `Arrendador verificado de ${demo.nombreComercial}.`,
+        demo.telefono,
+        demo.ciudad,
+      ],
+    )
+
+    const profileId = profileResult.rows[0].id
+
+    await client.query(
+      `
+        INSERT INTO perfiles_arrendador (
+          perfil_id,
+          nombre_comercial,
+          descripcion_empresa,
+          web,
+          ver_email,
+          ver_telefono
+        )
+        VALUES ($1, $2, $3, $4, TRUE, TRUE)
+        ON CONFLICT (perfil_id) DO UPDATE
+          SET nombre_comercial = COALESCE(perfiles_arrendador.nombre_comercial, EXCLUDED.nombre_comercial),
+              descripcion_empresa = COALESCE(perfiles_arrendador.descripcion_empresa, EXCLUDED.descripcion_empresa),
+              web = COALESCE(perfiles_arrendador.web, EXCLUDED.web),
+              ver_email = TRUE,
+              ver_telefono = TRUE
+      `,
+      [profileId, demo.nombreComercial, demo.descripcionEmpresa, demo.web],
+    )
+  }
+}
+
 // --- Validation helpers ---
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.trim() !== ''
@@ -1041,6 +1166,10 @@ app.get('/api/search/suerte', requiereAutenticacion, async (req, res) => {
 
       const me = current.rows[0]
 
+      if (me.rol === 'arrendatario') {
+        await asegurarArrendadoresDeviber(client)
+      }
+
       const candidates =
         me.rol === 'arrendatario'
           ? await client.query(
@@ -1076,37 +1205,22 @@ app.get('/api/search/suerte', requiereAutenticacion, async (req, res) => {
                 FROM usuarios u
                 JOIN perfiles p ON p.usuario_id = u.id
                 JOIN perfiles_arrendador pa ON pa.perfil_id = p.id
-                JOIN LATERAL (
+                LEFT JOIN LATERAL (
                   SELECT prop.*
                   FROM propiedades prop
                   WHERE prop.arrendador_perfil_id = p.id
                     AND prop.disponible = TRUE
-                    AND (
-                      $1::numeric IS NULL
-                      OR prop.precio <= $1
-                    )
-                    AND (
-                      $2::numeric IS NULL
-                      OR prop.precio >= $2
-                    )
-                    AND (
-                      $3::text IS NULL
-                      OR $3 = ''
-                      OR LOWER(prop.ciudad) LIKE LOWER('%' || $3 || '%')
-                      OR LOWER(COALESCE(prop.zona, '')) LIKE LOWER('%' || $3 || '%')
-                    )
                   ORDER BY prop.fecha_publicacion DESC, prop.id DESC
                   LIMIT 1
                 ) prop ON TRUE
                 LEFT JOIN matches m
                   ON m.arrendador_perfil_id = p.id
-                 AND m.arrendatario_perfil_id = $4
+                 AND m.arrendatario_perfil_id = $1
                 WHERE u.rol = 'arrendador'
-                  AND p.id <> $4
-                ORDER BY m.contacto_visible DESC NULLS LAST, prop.fecha_publicacion DESC, p.id DESC
-                LIMIT 12
+                  AND p.id <> $1
+                ORDER BY m.contacto_visible DESC NULLS LAST, prop.fecha_publicacion DESC NULLS LAST, p.id DESC
               `,
-              [me.rango_precio_max, me.rango_precio_min, me.ubicacion_deseada, me.profile_id],
+              [me.profile_id],
             )
           : await client.query(
               `
@@ -1282,22 +1396,13 @@ app.post('/api/matches/:profileId/vote', requiereAutenticacion, async (req, res)
           `
             UPDATE matches
             SET
-              ${voteColumn} = $3,
+              ${voteColumn} = $2,
               ${timestampColumn} = NOW(),
-              estado = CASE
-                WHEN ${voteColumn} = 'down' OR $3 = 'down' THEN 'rechazado'
-                WHEN ${otherVoteColumn} = 'up' AND $3 = 'up' THEN 'match'
-                ELSE 'pendiente'
-              END,
-              contacto_visible = CASE
-                WHEN ${otherVoteColumn} = 'up' AND $3 = 'up' THEN TRUE
-                ELSE contacto_visible AND ${otherVoteColumn} = 'up' AND $3 = 'up'
-              END,
               fecha_actualizacion = NOW()
             WHERE id = $1
             RETURNING *
           `,
-          [existing.rows[0].id, vote, vote],
+          [existing.rows[0].id, vote],
         )
         matchRow = updated.rows[0]
       }
@@ -1319,12 +1424,13 @@ app.post('/api/matches/:profileId/vote', requiereAutenticacion, async (req, res)
         await client.query(
           `
             UPDATE matches
-            SET estado = 'rechazado', fecha_actualizacion = NOW()
+            SET estado = 'rechazado', contacto_visible = FALSE, fecha_actualizacion = NOW()
             WHERE id = $1
           `,
           [matchRow.id],
         )
         matchRow.estado = 'rechazado'
+        matchRow.contacto_visible = false
       }
 
       return matchRow
@@ -1391,10 +1497,17 @@ app.get('/api/matches/mine', requiereAutenticacion, async (req, res) => {
             pt.fumador,
             prop.id AS property_id,
             prop.titulo AS property_titulo,
+            prop.descripcion AS property_descripcion,
             prop.precio AS property_precio,
             prop.ciudad AS property_ciudad,
             prop.zona AS property_zona,
-            prop.tipo_alquiler AS property_tipo_alquiler
+            prop.direccion AS property_direccion,
+            prop.habitaciones AS property_habitaciones,
+            prop.banos AS property_banos,
+            prop.metros_cuadrados AS property_metros_cuadrados,
+            prop.tipo_alquiler AS property_tipo_alquiler,
+            prop.amueblado AS property_amueblado,
+            prop.disponible AS property_disponible
           FROM matches m
           JOIN perfiles p ON p.id = CASE WHEN m.arrendador_perfil_id = $1 THEN m.arrendatario_perfil_id ELSE m.arrendador_perfil_id END
           JOIN usuarios u ON u.id = p.usuario_id
@@ -1480,10 +1593,17 @@ app.get('/api/matches/mine', requiereAutenticacion, async (req, res) => {
             ? {
                 id: row.property_id,
                 titulo: row.property_titulo,
+                descripcion: row.property_descripcion,
                 precio: row.property_precio,
                 ciudad: row.property_ciudad,
                 zona: row.property_zona,
+                direccion: row.property_direccion,
+                habitaciones: row.property_habitaciones,
+                banos: row.property_banos,
+                metrosCuadrados: row.property_metros_cuadrados,
                 tipoAlquiler: row.property_tipo_alquiler,
+                amueblado: row.property_amueblado,
+                disponible: row.property_disponible,
               }
             : null,
       }))
